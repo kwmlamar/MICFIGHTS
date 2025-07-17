@@ -58,11 +58,18 @@ const Layout = ({ children }) => {
     setAuthModalOpen(true);
   };
 
-  const handleAuthSuccess = () => {
-    toast({
-      title: "Welcome to Micfights!",
-      description: "You're now signed in and ready to explore.",
-    });
+  const handleAuthSuccess = (mode) => {
+    if (mode === 'signup') {
+      toast({
+        title: "Account Created!",
+        description: "Please check your email to confirm your account before signing in.",
+      });
+    } else {
+      toast({
+        title: "Welcome to Micfights!",
+        description: "You're now signed in and ready to explore.",
+      });
+    }
   };
 
   return (

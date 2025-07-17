@@ -50,8 +50,8 @@ export const AuthProvider = ({ children }) => {
       });
     } else {
       toast({
-        title: "Sign up Successful",
-        description: "Please check your email to verify your account.",
+        title: "Check Your Email",
+        description: "Please check your email to confirm your account before signing in.",
       });
     }
 
@@ -72,8 +72,8 @@ export const AuthProvider = ({ children }) => {
       });
     } else {
       toast({
-        title: "Welcome back!",
-        description: "Successfully signed in.",
+        title: "Welcome to Micfights!",
+        description: "You're now signed in and ready to explore.",
       });
     }
 

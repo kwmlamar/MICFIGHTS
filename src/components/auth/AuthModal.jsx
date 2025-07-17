@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   X, 
@@ -29,6 +29,11 @@ const AuthModal = ({ isOpen, onClose, initialMode = 'login', onSuccess }) => {
   });
 
   const { signIn, signUp, signInWithMagicLink, resetPassword } = useAuth();
+
+  // Update mode when initialMode prop changes
+  useEffect(() => {
+    setMode(initialMode);
+  }, [initialMode]);
 
   const handleInputChange = (e) => {
     setFormData({
@@ -63,7 +68,8 @@ const AuthModal = ({ isOpen, onClose, initialMode = 'login', onSuccess }) => {
       }
 
       if (!error) {
-        onSuccess?.();
+        // Pass the mode to the success handler
+        onSuccess?.(mode);
         onClose();
       }
     } catch (error) {
@@ -81,6 +87,7 @@ const AuthModal = ({ isOpen, onClose, initialMode = 'login', onSuccess }) => {
     try {
       const { error } = await signInWithMagicLink(formData.email);
       if (!error) {
+        onSuccess?.('login'); // Magic link is for login
         onClose();
       }
     } catch (error) {
@@ -127,10 +134,10 @@ const AuthModal = ({ isOpen, onClose, initialMode = 'login', onSuccess }) => {
             >
               <div className="flex items-center space-x-2">
                 <Info className="w-5 h-5" />
-                <span className="font-semibold">Venue Testing</span>
+                <span className="font-semibold">Demo Version</span>
               </div>
               <p className="text-sm mt-1 opacity-90">
-                We're bringing on a venue tomorrow for testing. Your account will be created with Supabase Auth for our venue testing session.
+                This is a demo version of Micfights. Your account will be created with Supabase Auth for trial purposes.
               </p>
             </motion.div>
           )}

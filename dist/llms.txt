@@ -1,0 +1,2 @@
+## Pages
+- [Songs - Music Streaming Platform](/songs): Stream your favorite songs with our dynamic music player
