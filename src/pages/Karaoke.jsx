@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { 
   Mic, 
@@ -17,6 +17,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { useToast } from '@/components/ui/use-toast';
+import { supabase } from '@/lib/supabaseClient';
 
 const Karaoke = () => {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -24,73 +25,202 @@ const Karaoke = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedGenre, setSelectedGenre] = useState('all');
   const [difficulty, setDifficulty] = useState('all');
+  const [karaokeTracks, setKaraokeTracks] = useState([]);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
+  const audioRef = useRef(null);
   const { toast } = useToast();
 
   const karaokeGenres = ['all', 'pop', 'rock', 'country', 'r&b', 'hip-hop', 'classic'];
   const difficultyLevels = ['all', 'easy', 'medium', 'hard', 'expert'];
 
-  const karaokeTracks = [
-    {
-      id: 1,
-      title: "Bohemian Rhapsody",
-      artist: "Queen",
-      genre: "rock",
-      difficulty: "expert",
-      duration: "5:55",
-      rating: 4.8,
-      isMicfightEligible: true,
-      hasBackingVocals: true
-    },
-    {
-      id: 2,
-      title: "Sweet Caroline",
-      artist: "Neil Diamond",
-      genre: "classic",
-      difficulty: "easy",
-      duration: "3:21",
-      rating: 4.9,
-      isMicfightEligible: false,
-      hasBackingVocals: true
-    },
-    {
-      id: 3,
-      title: "Don't Stop Believin'",
-      artist: "Journey",
-      genre: "rock",
-      difficulty: "medium",
-      duration: "4:11",
-      rating: 4.7,
-      isMicfightEligible: true,
-      hasBackingVocals: false
-    },
-    {
-      id: 4,
-      title: "I Will Always Love You",
-      artist: "Whitney Houston",
-      genre: "r&b",
-      difficulty: "hard",
-      duration: "4:31",
-      rating: 4.6,
-      isMicfightEligible: true,
-      hasBackingVocals: false
+  // Fetch karaoke tracks from database
+  useEffect(() => {
+    fetchKaraokeTracks();
+  }, []);
+
+  const fetchKaraokeTracks = async () => {
+    const { data, error } = await supabase
+      .from('songs')
+      .select('*')
+      .eq('is_karaoke_track', true)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      toast({
+        title: "Error fetching karaoke tracks",
+        description: error.message,
+        variant: "destructive",
+      });
+    } else {
+      console.log('Fetched karaoke tracks:', data);
+      setKaraokeTracks(data);
     }
-  ];
+  };
+
+  // Audio event handlers
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
+    const handleLoadedMetadata = () => setDuration(audio.duration);
+    const handleEnded = () => {
+      console.log('Karaoke track ended');
+      setIsPlaying(false);
+      handleNext();
+    };
+    const handlePlay = () => {
+      console.log('Karaoke play event fired');
+      setIsPlaying(true);
+    };
+    const handlePause = () => {
+      console.log('Karaoke pause event fired');
+      setIsPlaying(false);
+    };
+    const handleError = (e) => {
+      console.error('Karaoke audio error:', e);
+      setIsPlaying(false);
+      toast({
+        title: "Playback Error",
+        description: "Unable to play this karaoke track. Please try another track.",
+        variant: "destructive",
+      });
+    };
+
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audio.addEventListener('ended', handleEnded);
+    audio.addEventListener('play', handlePlay);
+    audio.addEventListener('pause', handlePause);
+    audio.addEventListener('error', handleError);
+
+    return () => {
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener('play', handlePlay);
+      audio.removeEventListener('pause', handlePause);
+      audio.removeEventListener('error', handleError);
+    };
+  }, [toast]);
+
+  // Update audio source when currentTrack changes
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !currentTrack) return;
+
+    console.log('Loading karaoke audio source:', currentTrack.source_url);
+    audio.src = currentTrack.source_url;
+    audio.load();
+  }, [currentTrack]);
+
+  // Volume control
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.volume = volume;
+    }
+  }, [volume]);
 
   const playTrack = (track) => {
+    console.log('Setting karaoke track:', track.title, 'URL:', track.source_url);
     setCurrentTrack(track);
-    setIsPlaying(true);
+    setIsPlaying(false); // Don't auto-play, wait for user to click play
     toast({
-      title: "Karaoke Mode",
-      description: `🚧 Karaoke playback for "${track.title}" isn't implemented yet—but don't worry! You can request it in your next prompt! 🚀`,
-      duration: 3000,
+      title: "Karaoke Track Loaded",
+      description: `${track.title} by ${track.artist} - Click play to start singing!`,
     });
   };
 
   const togglePlay = () => {
-    setIsPlaying(!isPlaying);
+    const audio = audioRef.current;
+    if (!audio) return;
+
     if (!currentTrack) {
-      playTrack(karaokeTracks[0]);
+      if (karaokeTracks.length > 0) {
+        playTrack(karaokeTracks[0]);
+      }
+      return;
     }
+
+    console.log('Current karaoke audio state:', {
+      paused: audio.paused,
+      readyState: audio.readyState,
+      src: audio.src,
+      duration: audio.duration,
+      currentTime: audio.currentTime
+    });
+    
+    if (isPlaying) {
+      console.log('Pausing karaoke audio');
+      audio.pause();
+      setIsPlaying(false);
+    } else {
+      console.log('Attempting to play karaoke audio');
+      if (audio.readyState >= 2) { // HAVE_CURRENT_DATA
+        const playPromise = audio.play();
+        if (playPromise !== undefined) {
+          playPromise
+            .then(() => {
+              console.log('Karaoke audio started playing successfully');
+              setIsPlaying(true);
+            })
+            .catch(error => {
+              console.error('Karaoke playback failed:', error);
+              setIsPlaying(false);
+              if (error.name === 'NotAllowedError') {
+                toast({
+                  title: "Autoplay Blocked",
+                  description: "Please click play again to start karaoke.",
+                  variant: "destructive",
+                });
+              } else {
+                toast({
+                  title: "Playback Error",
+                  description: `Unable to play "${currentTrack.title}". Error: ${error.message}`,
+                  variant: "destructive",
+                });
+              }
+            });
+        }
+      } else {
+        console.log('Karaoke audio not ready, readyState:', audio.readyState);
+        toast({
+          title: "Loading...",
+          description: "Karaoke track is still loading, please wait a moment.",
+        });
+      }
+    }
+  };
+
+  const handleNext = () => {
+    if (!currentTrack || karaokeTracks.length === 0) return;
+    const currentIndex = karaokeTracks.findIndex(track => track.id === currentTrack.id);
+    const nextIndex = (currentIndex + 1) % karaokeTracks.length;
+    setCurrentTrack(karaokeTracks[nextIndex]);
+    setIsPlaying(true);
+  };
+
+  const handlePrevious = () => {
+    if (!currentTrack || karaokeTracks.length === 0) return;
+    const currentIndex = karaokeTracks.findIndex(track => track.id === currentTrack.id);
+    const prevIndex = currentIndex === 0 ? karaokeTracks.length - 1 : currentIndex - 1;
+    setCurrentTrack(karaokeTracks[prevIndex]);
+    setIsPlaying(true);
+  };
+
+  const handleSeek = (newTime) => {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.currentTime = newTime;
+      setCurrentTime(newTime);
+    }
+  };
+
+  const handleVolumeChange = (newVolume) => {
+    setVolume(newVolume);
   };
 
   const showHelp = (feature) => {
@@ -111,8 +241,30 @@ const Karaoke = () => {
     }
   };
 
+  const formatTime = (time) => {
+    if (isNaN(time)) return '0:00';
+    const minutes = Math.floor(time / 60);
+    const seconds = Math.floor(time % 60);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
+  // Filter tracks based on search and filters
+  const filteredTracks = karaokeTracks.filter(track => {
+    const matchesSearch = track.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         track.artist.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesGenre = selectedGenre === 'all' || track.genre === selectedGenre;
+    const matchesDifficulty = difficulty === 'all' || track.difficulty === difficulty;
+    
+    return matchesSearch && matchesGenre && matchesDifficulty;
+  });
+
+  const progressPercentage = duration > 0 ? (currentTime / duration) * 100 : 0;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 py-8">
+      {/* Hidden audio element for actual playback */}
+      <audio ref={audioRef} preload="metadata" />
+      
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="text-center mb-12">
@@ -158,10 +310,10 @@ const Karaoke = () => {
                   <h3 className="text-2xl font-bold text-gray-800 mb-2">{currentTrack.title}</h3>
                   <p className="text-gray-600 mb-2">{currentTrack.artist}</p>
                   <div className="flex items-center justify-center space-x-4">
-                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${getDifficultyColor(currentTrack.difficulty)}`}>
-                      {currentTrack.difficulty.charAt(0).toUpperCase() + currentTrack.difficulty.slice(1)}
+                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${getDifficultyColor(currentTrack.difficulty || 'medium')}`}>
+                      {(currentTrack.difficulty || 'Medium').charAt(0).toUpperCase() + (currentTrack.difficulty || 'Medium').slice(1)}
                     </span>
-                    {currentTrack.isMicfightEligible && (
+                    {currentTrack.is_competition_master && (
                       <span className="bg-yellow-100 text-yellow-600 px-3 py-1 rounded-full text-sm font-medium">
                         Micfight Eligible
                       </span>
@@ -180,14 +332,18 @@ const Karaoke = () => {
               {/* Progress Bar */}
               <div className="mb-6">
                 <Slider
-                  value={[0]}
+                  value={[progressPercentage]}
+                  onValueChange={(value) => {
+                    const newTime = (value[0] / 100) * duration;
+                    handleSeek(newTime);
+                  }}
                   max={100}
-                  step={1}
+                  step={0.1}
                   className="w-full"
                 />
                 <div className="flex justify-between text-sm text-gray-500 mt-2">
-                  <span>0:00</span>
-                  <span>{currentTrack?.duration || '0:00'}</span>
+                  <span>{formatTime(currentTime)}</span>
+                  <span>{formatTime(duration)}</span>
                 </div>
               </div>
 
@@ -196,6 +352,7 @@ const Karaoke = () => {
                 <Button
                   variant="ghost"
                   size="icon"
+                  onClick={handlePrevious}
                   className="text-gray-600 hover:text-blue-600"
                 >
                   <SkipBack className="w-6 h-6" />
@@ -211,6 +368,7 @@ const Karaoke = () => {
                 <Button
                   variant="ghost"
                   size="icon"
+                  onClick={handleNext}
                   className="text-gray-600 hover:text-blue-600"
                 >
                   <SkipForward className="w-6 h-6" />
@@ -221,12 +379,13 @@ const Karaoke = () => {
               <div className="flex items-center space-x-4 mb-6">
                 <Volume2 className="w-5 h-5 text-gray-600" />
                 <Slider
-                  value={[75]}
+                  value={[volume * 100]}
+                  onValueChange={(value) => handleVolumeChange(value[0] / 100)}
                   max={100}
                   step={1}
                   className="flex-1"
                 />
-                <span className="text-sm text-gray-500 w-8">75</span>
+                <span className="text-sm text-gray-500 w-8">{Math.round(volume * 100)}</span>
               </div>
 
               {/* Karaoke Controls */}
@@ -314,58 +473,66 @@ const Karaoke = () => {
 
               {/* Track List */}
               <div className="space-y-3 max-h-96 overflow-y-auto scrollbar-hide">
-                {karaokeTracks.map((track) => (
-                  <motion.div
-                    key={track.id}
-                    whileHover={{ scale: 1.02 }}
-                    className={`p-4 rounded-xl cursor-pointer transition-all duration-200 ${
-                      currentTrack?.id === track.id
-                        ? 'bg-gradient-to-r from-pink-500 to-purple-600 text-white'
-                        : 'bg-white/50 hover:bg-white/70 text-gray-800'
-                    }`}
-                    onClick={() => playTrack(track)}
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex-1 min-w-0">
-                        <h4 className="font-semibold truncate">{track.title}</h4>
-                        <p className={`text-sm truncate ${currentTrack?.id === track.id ? 'text-white/80' : 'text-gray-600'}`}>
-                          {track.artist}
-                        </p>
+                {filteredTracks.length > 0 ? (
+                  filteredTracks.map((track) => (
+                    <motion.div
+                      key={track.id}
+                      whileHover={{ scale: 1.02 }}
+                      className={`p-4 rounded-xl cursor-pointer transition-all duration-200 ${
+                        currentTrack?.id === track.id
+                          ? 'bg-gradient-to-r from-pink-500 to-purple-600 text-white'
+                          : 'bg-white/50 hover:bg-white/70 text-gray-800'
+                      }`}
+                      onClick={() => playTrack(track)}
+                    >
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-semibold truncate">{track.title}</h4>
+                          <p className={`text-sm truncate ${currentTrack?.id === track.id ? 'text-white/80' : 'text-gray-600'}`}>
+                            {track.artist}
+                          </p>
+                        </div>
+                        <div className="flex items-center space-x-1 ml-2">
+                          <Star className="w-3 h-3 text-yellow-400 fill-current" />
+                          <span className={`text-xs ${currentTrack?.id === track.id ? 'text-white/80' : 'text-gray-500'}`}>
+                            4.5
+                          </span>
+                        </div>
                       </div>
-                      <div className="flex items-center space-x-1 ml-2">
-                        <Star className="w-3 h-3 text-yellow-400 fill-current" />
-                        <span className={`text-xs ${currentTrack?.id === track.id ? 'text-white/80' : 'text-gray-500'}`}>
-                          {track.rating}
-                        </span>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center justify-between">
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        currentTrack?.id === track.id 
-                          ? 'bg-white/20 text-white' 
-                          : getDifficultyColor(track.difficulty)
-                      }`}>
-                        {track.difficulty}
-                      </span>
-                      <span className={`text-xs ${currentTrack?.id === track.id ? 'text-white/80' : 'text-gray-500'}`}>
-                        {track.duration}
-                      </span>
-                    </div>
-
-                    {track.isMicfightEligible && (
-                      <div className="mt-2">
-                        <span className={`text-xs px-2 py-1 rounded-full ${
+                      
+                      <div className="flex items-center justify-between">
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
                           currentTrack?.id === track.id 
-                            ? 'bg-yellow-400 text-yellow-900' 
-                            : 'bg-yellow-100 text-yellow-600'
+                            ? 'bg-white/20 text-white' 
+                            : getDifficultyColor(track.difficulty || 'medium')
                         }`}>
-                          Micfight Eligible
+                          {track.difficulty || 'Medium'}
+                        </span>
+                        <span className={`text-xs ${currentTrack?.id === track.id ? 'text-white/80' : 'text-gray-500'}`}>
+                          {track.duration || '3:30'}
                         </span>
                       </div>
-                    )}
-                  </motion.div>
-                ))}
+
+                      {track.is_competition_master && (
+                        <div className="mt-2">
+                          <span className={`text-xs px-2 py-1 rounded-full ${
+                            currentTrack?.id === track.id 
+                              ? 'bg-yellow-400 text-yellow-900' 
+                              : 'bg-yellow-100 text-yellow-600'
+                          }`}>
+                            Micfight Eligible
+                          </span>
+                        </div>
+                      )}
+                    </motion.div>
+                  ))
+                ) : (
+                  <div className="text-center py-8 text-gray-500">
+                    <Music className="w-12 h-12 mx-auto mb-4 text-gray-300" />
+                    <p>No karaoke tracks found</p>
+                    <p className="text-sm">Upload some karaoke tracks in the Admin Portal</p>
+                  </div>
+                )}
               </div>
             </motion.div>
           </div>
