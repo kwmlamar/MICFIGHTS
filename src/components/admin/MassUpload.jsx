@@ -75,7 +75,7 @@ const MassUpload = ({ onUploadSuccess }) => {
         supabase_storage_path: filePath,
         source_url: publicUrl,
         uploaded_by: user.id,
-        source_type: 'upload'
+        source_type: 'uploaded'
       });
 
       if (dbError) {
