@@ -5,15 +5,32 @@ import { Button } from '@/components/ui/button';
 import { Slider } from '@/components/ui/slider';
 import { useToast } from '@/components/ui/use-toast';
 
-const DynamicPlayer = ({ song, isPlaying, onPlayPause, onNext, onPrevious }) => {
+const DynamicPlayer = ({ 
+  song, 
+  isPlaying, 
+  onPlayPause, 
+  onNext, 
+  onPrevious,
+  currentTime = 0,
+  duration = 0,
+  onSeek,
+  volume = 1,
+  onVolumeChange
+}) => {
   const { toast } = useToast();
-  const [volume, setVolume] = useState(50);
   const [isMuted, setIsMuted] = useState(false);
   const [isShuffled, setIsShuffled] = useState(false);
   const [repeatMode, setRepeatMode] = useState('off');
   const [isKaraokeMode, setIsKaraokeMode] = useState(false);
   const [playerSize, setPlayerSize] = useState('medium');
   const [playerShape, setPlayerShape] = useState('rounded');
+
+  const formatTime = (time) => {
+    if (isNaN(time)) return '0:00';
+    const minutes = Math.floor(time / 60);
+    const seconds = Math.floor(time % 60);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
 
   const handleShuffle = () => {
     setIsShuffled(!isShuffled);
@@ -36,6 +53,31 @@ const DynamicPlayer = ({ song, isPlaying, onPlayPause, onNext, onPrevious }) => 
     toast({ title: isKaraokeMode ? "Music Mode" : "Karaoke Mode" });
   };
 
+  const handleVolumeSliderChange = (value) => {
+    const newVolume = value[0] / 100;
+    onVolumeChange(newVolume);
+    if (newVolume === 0) {
+      setIsMuted(true);
+    } else if (isMuted) {
+      setIsMuted(false);
+    }
+  };
+
+  const toggleMute = () => {
+    if (isMuted) {
+      onVolumeChange(volume);
+      setIsMuted(false);
+    } else {
+      onVolumeChange(0);
+      setIsMuted(true);
+    }
+  };
+
+  const handleProgressChange = (value) => {
+    const newTime = (value[0] / 100) * duration;
+    onSeek(newTime);
+  };
+
   const getPlayerSizeClass = () => {
     switch (playerSize) {
       case 'small': return 'w-80 h-20';
@@ -51,6 +93,9 @@ const DynamicPlayer = ({ song, isPlaying, onPlayPause, onNext, onPrevious }) => 
       default: return 'rounded-2xl';
     }
   };
+
+  const progressPercentage = duration > 0 ? (currentTime / duration) * 100 : 0;
+  const volumePercentage = isMuted ? 0 : volume * 100;
 
   return (
     <motion.div
@@ -69,6 +114,11 @@ const DynamicPlayer = ({ song, isPlaying, onPlayPause, onNext, onPrevious }) => 
           <div className="min-w-0 flex-1">
             <h4 className="text-white font-semibold truncate">{song.title}</h4>
             <p className="text-gray-300 text-sm truncate">{song.artist}</p>
+            <div className="flex items-center gap-2 text-xs text-gray-400">
+              <span>{formatTime(currentTime)}</span>
+              <span>/</span>
+              <span>{formatTime(duration)}</span>
+            </div>
           </div>
         </div>
 
@@ -82,11 +132,28 @@ const DynamicPlayer = ({ song, isPlaying, onPlayPause, onNext, onPrevious }) => 
         </div>
 
         <div className="flex items-center gap-2">
-          <Button onClick={() => setIsMuted(!isMuted)} variant="ghost" size="sm" className="text-white hover:bg-white/20">{isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}</Button>
+          <Button onClick={toggleMute} variant="ghost" size="sm" className="text-white hover:bg-white/20">{isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}</Button>
           <div className="w-20">
-            <Slider value={[isMuted ? 0 : volume]} onValueChange={(v) => setVolume(v[0])} max={100} step={1} className="w-full" />
+            <Slider 
+              value={[volumePercentage]} 
+              onValueChange={handleVolumeSliderChange} 
+              max={100} 
+              step={1} 
+              className="w-full" 
+            />
           </div>
         </div>
+      </div>
+
+      {/* Progress Bar */}
+      <div className="mt-2 w-full">
+        <Slider 
+          value={[progressPercentage]} 
+          onValueChange={handleProgressChange} 
+          max={100} 
+          step={0.1} 
+          className="w-full" 
+        />
       </div>
 
       <div className="mt-2 flex gap-2 justify-center">

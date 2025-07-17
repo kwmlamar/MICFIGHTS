@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Search, Grid, List } from 'lucide-react';
@@ -16,6 +16,10 @@ const Songs = () => {
   const [songs, setSongs] = useState([]);
   const [currentSong, setCurrentSong] = useState(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
+  const audioRef = useRef(null);
   
   const [libraries, setLibraries] = useState([]);
   const [playlists, setPlaylists] = useState([]);
@@ -52,29 +56,158 @@ const Songs = () => {
     localStorage.setItem('favoriteSongs', JSON.stringify(favoriteSongs));
   }, [favoriteSongs]);
 
-  const fetchSongs = async () => {
-    const { data, error } = await supabase.from('songs').select('*');
-    if (error) {
+  // Audio event handlers
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
+    const handleLoadedMetadata = () => setDuration(audio.duration);
+    const handleEnded = () => {
+      console.log('Audio ended');
+      setIsPlaying(false);
+      handleNext();
+    };
+    const handlePlay = () => {
+      console.log('Audio play event fired');
+      setIsPlaying(true);
+    };
+    const handlePause = () => {
+      console.log('Audio pause event fired');
+      setIsPlaying(false);
+    };
+    const handleError = (e) => {
+      console.error('Audio error:', e);
+      setIsPlaying(false);
       toast({
-        title: "Error fetching songs",
-        description: error.message,
+        title: "Playback Error",
+        description: "Unable to play this song. Please try another track.",
         variant: "destructive",
       });
-    } else {
-      setSongs(data);
+    };
+
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+    audio.addEventListener('ended', handleEnded);
+    audio.addEventListener('play', handlePlay);
+    audio.addEventListener('pause', handlePause);
+    audio.addEventListener('error', handleError);
+
+    return () => {
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener('play', handlePlay);
+      audio.removeEventListener('pause', handlePause);
+      audio.removeEventListener('error', handleError);
+    };
+  }, [toast]);
+
+  // Update audio source when currentSong changes
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !currentSong) return;
+
+    console.log('Loading audio source:', currentSong.source_url);
+    
+    audio.src = currentSong.source_url;
+    audio.load();
+    
+    // Add event listeners for debugging
+    const handleCanPlay = () => {
+      console.log('Audio can play, duration:', audio.duration);
+    };
+    
+    const handleLoadStart = () => {
+      console.log('Audio load started');
+    };
+    
+    const handleLoadEnd = () => {
+      console.log('Audio load ended');
+    };
+
+    audio.addEventListener('canplay', handleCanPlay);
+    audio.addEventListener('loadstart', handleLoadStart);
+    audio.addEventListener('loadend', handleLoadEnd);
+
+    return () => {
+      audio.removeEventListener('canplay', handleCanPlay);
+      audio.removeEventListener('loadstart', handleLoadStart);
+      audio.removeEventListener('loadend', handleLoadEnd);
+    };
+  }, [currentSong, toast]);
+
+  // Volume control
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.volume = volume;
     }
-  };
+  }, [volume]);
 
   const handlePlayPause = (song = null) => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
     if (song && song.id !== currentSong?.id) {
+      console.log('Setting new song:', song.title, 'URL:', song.source_url);
       setCurrentSong(song);
-      setIsPlaying(true);
+      // Don't auto-play, wait for user to click play
+      setIsPlaying(false);
       toast({
-        title: "Now Playing",
-        description: `${song.title} by ${song.artist}`,
+        title: "Song Loaded",
+        description: `${song.title} by ${song.artist} - Click play to start`,
       });
     } else if (currentSong) {
-      setIsPlaying(!isPlaying);
+      console.log('Current audio state:', {
+        paused: audio.paused,
+        readyState: audio.readyState,
+        src: audio.src,
+        duration: audio.duration,
+        currentTime: audio.currentTime
+      });
+      
+      if (isPlaying) {
+        console.log('Pausing audio');
+        audio.pause();
+        setIsPlaying(false);
+      } else {
+        console.log('Attempting to play audio');
+        // Check if audio is ready to play
+        if (audio.readyState >= 2) { // HAVE_CURRENT_DATA
+          const playPromise = audio.play();
+          if (playPromise !== undefined) {
+            playPromise
+              .then(() => {
+                console.log('Audio started playing successfully');
+                setIsPlaying(true);
+              })
+              .catch(error => {
+                console.error('Playback failed:', error);
+                setIsPlaying(false);
+                if (error.name === 'NotAllowedError') {
+                  toast({
+                    title: "Autoplay Blocked",
+                    description: "Please click play again to start playback.",
+                    variant: "destructive",
+                  });
+                } else {
+                  toast({
+                    title: "Playback Error",
+                    description: `Unable to play "${currentSong.title}". Error: ${error.message}`,
+                    variant: "destructive",
+                  });
+                }
+              });
+          }
+        } else {
+          console.log('Audio not ready, readyState:', audio.readyState);
+          toast({
+            title: "Loading...",
+            description: "Audio is still loading, please wait a moment.",
+          });
+        }
+      }
     }
   };
 
@@ -92,6 +225,41 @@ const Songs = () => {
     const prevIndex = currentIndex === 0 ? songs.length - 1 : currentIndex - 1;
     setCurrentSong(songs[prevIndex]);
     setIsPlaying(true);
+  };
+
+  const handleSeek = (newTime) => {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.currentTime = newTime;
+      setCurrentTime(newTime);
+    }
+  };
+
+  const handleVolumeChange = (newVolume) => {
+    setVolume(newVolume);
+  };
+
+  const fetchSongs = async () => {
+    const { data, error } = await supabase.from('songs').select('*');
+    if (error) {
+      toast({
+        title: "Error fetching songs",
+        description: error.message,
+        variant: "destructive",
+      });
+    } else {
+      console.log('Fetched songs:', data);
+      // Log the first song's details to debug
+      if (data && data.length > 0) {
+        console.log('First song details:', {
+          title: data[0].title,
+          artist: data[0].artist,
+          source_url: data[0].source_url,
+          supabase_storage_path: data[0].supabase_storage_path
+        });
+      }
+      setSongs(data);
+    }
   };
 
   const toggleFavorite = (songId) => {
@@ -117,6 +285,9 @@ const Songs = () => {
         <title>Songs - Music Streaming Platform</title>
         <meta name="description" content="Stream your favorite songs with our dynamic music player" />
       </Helmet>
+
+      {/* Hidden audio element for actual playback */}
+      <audio ref={audioRef} preload="metadata" />
 
       <div className="container mx-auto px-4 py-8">
         <motion.div
@@ -189,6 +360,11 @@ const Songs = () => {
               onPlayPause={() => handlePlayPause()}
               onNext={handleNext}
               onPrevious={handlePrevious}
+              currentTime={currentTime}
+              duration={duration}
+              onSeek={handleSeek}
+              volume={volume}
+              onVolumeChange={handleVolumeChange}
             />
           )}
         </AnimatePresence>
